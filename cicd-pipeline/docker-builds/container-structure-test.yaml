@@ -2,7 +2,7 @@ schemaVersion: "2.0.0"
 
 metadataTest:
   exposedPorts:
-    - "8080/tcp"
+    - "8080"
   user: "appuser"
   entrypoint: ["/app/main"]
 
