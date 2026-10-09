@@ -202,7 +202,7 @@ jobs:
       - name: Install container-structure-test
         run: |
           curl -sSLo cst \
-            https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64
+            https://github.com/GoogleContainerTools/container-structure-test/releases/download/v1.22.1/container-structure-test-linux-amd64
           chmod +x cst
           sudo mv cst /usr/local/bin/container-structure-test
 
