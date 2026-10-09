@@ -12,6 +12,7 @@ This repository is a **production-grade, multi-cloud DevOps reference architectu
 ## 💰 **Revenue Streams**
 
 ### 1. **GitHub Sponsors / Patreon** (Passive - Low Effort)
+
 | Tier | Price | Target | Monthly Potential |
 |------|-------|--------|-------------------|
 | Individual | $5-25 | 200 devs | $1,000-5,000 |
@@ -20,6 +21,7 @@ This repository is a **production-grade, multi-cloud DevOps reference architectu
 | **Total** | | | **$5,500-9,500/mo** |
 
 ### 2. **Digital Products** (Semi-Passive - Medium Effort)
+
 | Product | Price | Effort | Annual Potential |
 |---------|-------|--------|------------------|
 | **Video Course** (8hrs) | $99 | 40 hrs | $50K-200K |
@@ -30,6 +32,7 @@ This repository is a **production-grade, multi-cloud DevOps reference architectu
 | **Total** | | | **$125K-490K/yr** |
 
 ### 3. **Professional Services** (Active - High Effort, High Value)
+
 | Service | Rate | Capacity | Annual Potential |
 |---------|------|----------|------------------|
 | **Architecture Review** | $500/hr | 20 hrs/mo | $120K |
@@ -39,6 +42,7 @@ This repository is a **production-grade, multi-cloud DevOps reference architectu
 | **Total** | | | **$564K/yr** |
 
 ### 4. **Licensing / SaaS** (Long-term)
+
 | Product | Model | Timeline | Potential |
 |---------|-------|----------|-----------|
 | **Policy-as-Code SaaS** | $299/mo/team | Year 2 | $100K-500K |
@@ -93,6 +97,7 @@ This repository is a **production-grade, multi-cloud DevOps reference architectu
 ## 🛠️ **Content Pipeline (Content Marketing)**
 
 ### Monthly Content Calendar
+
 | Week | Content Type | Topic |
 |------|--------------|-------|
 | 1 | Blog Post | "How we reduced cloud costs 47% with Terraform" |

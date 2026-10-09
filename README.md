@@ -396,6 +396,7 @@ If this repository helps you learn, land a job, or build something great — con
 [![Patreon](https://img.shields.io/badge/Patreon-Become_a_Patron-F96854?style=for-the-badge&logo=patreon)](https://patreon.com/priyaranjan-sahu)
 
 ### **What Your Sponsorship Funds**
+
 | Tier | Monthly | Benefits |
 |------|---------|----------|
 | ☕ **Coffee** | $5 | Name in README, Discord access |

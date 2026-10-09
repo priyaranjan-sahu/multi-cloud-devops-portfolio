@@ -123,7 +123,7 @@ jobs:
           soft_fail: true
 
       - name: Run Trivy (filesystem — vulns, secrets, misconfig)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'fs'
           scan-ref: '.'
@@ -212,7 +212,7 @@ jobs:
             --config cicd-pipeline/docker-builds/container-structure-test.yaml
 
       - name: Scan image with Trivy
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.28.0
         with:
           scan-type: 'image'
           image-ref: 'devops-portfolio/app:latest'
@@ -318,7 +318,9 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
 
       - name: Install Ansible & Lint
-        run: pip install "ansible-core>=2.16" ansible-lint yamllint
+        run: |
+          pip install "ansible-core>=2.16" ansible-lint yamllint
+          ansible-galaxy collection install community.docker community.general
 
       - name: Ansible Lint
         run: ansible-lint multi-cloud-infra/ansible-config/playbook.yml

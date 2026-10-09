@@ -193,7 +193,7 @@
           environment: "production"
 
     - name: Configure firewall for HTTP
-      ansible.builtin.ufw:
+      community.general.ufw:
         rule: allow
         port: "{{ container_port }}"
         proto: tcp
