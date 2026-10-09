@@ -1,0 +1,97 @@
+# ==========================================================
+# Multi-Cloud DevOps Portfolio - Global ignore rules
+# ==========================================================
+
+# --- OS / Editor ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+*.code-workspace
+
+# --- Secrets / credentials (NEVER commit) ---
+*.pem
+*.key
+*.p12
+*.pfx
+.ssh/
+*.tfvars
+!*.tfvars.example
+.env
+.env.*
+!.env.example
+credentials.json
+*-credentials.json
+*-key.json
+kubeconfig
+*.kubeconfig
+**/.aws/credentials
+
+# --- Terraform ---
+**/.terraform/
+**/.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfstate.backup
+*.tfplan
+tfplan
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+**/.infracost/
+infracost-report.json
+
+# --- LocalStack ---
+localstack-data/
+.localstack/
+volume/
+
+# --- Go ---
+cicd-pipeline/docker-builds/main
+cicd-pipeline/docker-builds/coverage.out
+cicd-pipeline/docker-builds/coverage.html
+*.exe
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+env/
+*.egg-info/
+.coverage
+coverage.xml
+htmlcov/
+
+# --- Node (act / docs tooling) ---
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# --- Kubernetes / Helm ---
+*.tgz
+charts/
+.helm/
+kubernetes-gitops-security/helm-charts/tmpcharts/
+
+# --- Build / reports ---
+build/
+dist/
+*.sarif
+sbom*.json
+sbom*.spdx
+trivy-results*
+**/.cache/

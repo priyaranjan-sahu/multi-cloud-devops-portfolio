@@ -1,0 +1,54 @@
+schemaVersion: "2.0.0"
+
+metadataTest:
+  env:
+    - key: "PATH"
+      value: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+  exposedPorts:
+    - "8080/tcp"
+  user: "appuser"
+  workdir: "/"
+  entrypoint: ["/app/main"]
+  cmd: []
+
+fileExistenceTests:
+  - name: "Binary exists"
+    path: "/app/main"
+    shouldExist: true
+    permissions: "-rwxr-xr-x"
+    uid: 65532
+    gid: 65532
+  - name: "CA certificates exist"
+    path: "/etc/ssl/certs/ca-certificates.crt"
+    shouldExist: true
+  - name: "Timezone data exists"
+    path: "/usr/share/zoneinfo"
+    shouldExist: true
+  - name: "Passwd file exists"
+    path: "/etc/passwd"
+    shouldExist: true
+
+fileContentTests:
+  - name: "Passwd contains appuser"
+    path: "/etc/passwd"
+    expectedContents:
+      - "appuser:x:65532:65532::/:/sbin/nologin"
+
+commandTests:
+  - name: "Health check endpoint"
+    command: "/app/main"
+    args: ["-health-check"]
+    expectedExitCode: 0
+    timeout: "5s"
+  - name: "Version flag"
+    command: "/app/main"
+    args: ["-version"]
+    expectedExitCode: 0
+    expectedOutput:
+      - "Version:"
+
+  - name: "Binary is statically linked"
+    command: "file"
+    args: ["/app/main"]
+    expectedOutput:
+      - "statically linked"

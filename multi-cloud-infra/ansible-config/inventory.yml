@@ -1,0 +1,25 @@
+---
+all:
+  children:
+    localhost:
+      hosts:
+        local:
+          ansible_connection: local
+          ansible_python_interpreter: "{{ ansible_playbook_python }}"
+    cloud_servers:
+      hosts:
+        # Add your cloud server IPs here
+        # aws-instance-1:
+        #   ansible_host: 1.2.3.4
+        #   ansible_user: ubuntu
+        #   ansible_ssh_private_key_file: ~/.ssh/devops-portfolio.pem
+        # gcp-instance-1:
+        #   ansible_host: 5.6.7.8
+        #   ansible_user: ubuntu
+        #   ansible_ssh_private_key_file: ~/.ssh/devops-portfolio.pem
+        # azure-instance-1:
+        #   ansible_host: 9.10.11.12
+        #   ansible_user: azureuser
+        #   ansible_ssh_private_key_file: ~/.ssh/devops-portfolio.pem
+      vars:
+        ansible_python_interpreter: /usr/bin/python3

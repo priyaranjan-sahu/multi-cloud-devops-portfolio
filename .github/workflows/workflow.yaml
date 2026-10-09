@@ -1,0 +1,484 @@
+---
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Target environment'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+
+# Least privilege by default; jobs elevate only what they need.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref to save runner minutes.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TERRAFORM_VERSION: '1.9.0'
+  PYTHON_VERSION: '3.11'
+  TF_IN_AUTOMATION: true
+  AWS_REGION: us-east-1
+
+jobs:
+  lint:
+    name: Lint & Validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      # Advisory: surfaces formatting drift without failing a repo that is not
+      # yet canonically formatted. Run `make fmt` to apply fixes.
+      - name: Terraform Format Check (advisory)
+        continue-on-error: true
+        run: terraform fmt -check -recursive -diff multi-cloud-infra/ cloud-security/
+
+      - name: Terraform Init & Validate (AWS)
+        working-directory: multi-cloud-infra/terraform-aws
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform Init & Validate (GCP)
+        working-directory: multi-cloud-infra/terraform-gcp
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform Init & Validate (Azure)
+        working-directory: multi-cloud-infra/terraform-azure
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Terraform Init & Validate (Bootstrap)
+        working-directory: multi-cloud-infra/terraform-bootstrap
+        run: |
+          terraform init -backend=false
+          terraform validate
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: YAML Lint
+        run: |
+          pip install "yamllint>=1.33"
+          yamllint -c .yamllint.yml .
+
+      - name: Markdown Lint
+        uses: avto-dev/markdown-lint@v1
+        with:
+          args: '**/*.md --config .markdownlint.json'
+
+      - name: Shellcheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: './'
+          excludes: 'localstack-data .terraform .git'
+
+  security-scan:
+    name: Security Scan (IaC & Secrets)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Checkov (Terraform Security)
+        uses: bridgecrewio/checkov-action@v12
+        with:
+          directory: multi-cloud-infra/ cloud-security/
+          framework: terraform
+          quiet: true
+          soft_fail: true
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: true
+
+      - name: Run Trivy (filesystem — vulns, secrets, misconfig)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+
+      - name: Upload Trivy results to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+
+  go:
+    name: Go Build & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: cicd-pipeline/docker-builds
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: cicd-pipeline/docker-builds/go.mod
+          cache-dependency-path: cicd-pipeline/docker-builds/go.sum
+
+      - name: Verify modules are tidy
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+
+      - name: Go Vet
+        run: go vet ./...
+
+      - name: Go Test (race + coverage)
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Go Build
+        run: CGO_ENABLED=0 go build -o /tmp/devops-portfolio .
+
+  docker:
+    name: Docker Build & Supply Chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./cicd-pipeline/docker-builds
+          push: false
+          load: true
+          tags: devops-portfolio/app:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Hadolint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: cicd-pipeline/docker-builds/Dockerfile
+
+      - name: Install container-structure-test
+        run: |
+          curl -sSLo cst \
+            https://storage.googleapis.com/container-structure-test/latest/container-structure-test-linux-amd64
+          chmod +x cst
+          sudo mv cst /usr/local/bin/container-structure-test
+
+      - name: Run Container Structure Test
+        run: |
+          container-structure-test test \
+            --image devops-portfolio/app:latest \
+            --config cicd-pipeline/docker-builds/container-structure-test.yaml
+
+      - name: Scan image with Trivy
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          scan-type: 'image'
+          image-ref: 'devops-portfolio/app:latest'
+          format: 'table'
+          severity: 'CRITICAL,HIGH'
+          ignore-unfixed: true
+          exit-code: '0'
+
+      - name: Generate SBOM (Syft)
+        uses: anchore/sbom-action@v0
+        with:
+          image: devops-portfolio/app:latest
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.spdx.json
+
+      # Registry-free provenance: keylessly sign the SBOM with the GitHub OIDC
+      # identity. Demonstrates supply-chain signing without needing a registry.
+      - name: Install Cosign
+        if: github.event_name == 'push'
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign SBOM (keyless)
+        if: github.event_name == 'push'
+        run: |
+          cosign sign-blob --yes \
+            --output-signature sbom.spdx.json.sig \
+            --output-certificate sbom.spdx.json.pem \
+            sbom.spdx.json
+
+      - name: Upload signature
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-signature
+          path: |
+            sbom.spdx.json.sig
+            sbom.spdx.json.pem
+
+  kubernetes:
+    name: Kubernetes & Policy Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.14.0
+
+      - name: Helm Lint
+        working-directory: kubernetes-gitops-security/helm-charts
+        run: helm lint .
+
+      - name: Helm Template Render
+        working-directory: kubernetes-gitops-security/helm-charts
+        run: helm template test-release . --namespace default > /tmp/rendered.yaml
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+            | sudo tar xz -C /usr/local/bin kubeconform
+
+      - name: Validate rendered manifests
+        run: kubeconform -strict -summary -ignore-missing-schemas /tmp/rendered.yaml
+
+      - name: Setup OPA
+        uses: open-policy-agent/setup-opa@v2
+        with:
+          version: latest
+
+      - name: OPA Policy Unit Tests
+        run: opa test kubernetes-gitops-security/security-policies/ -v
+
+      - name: Install Kyverno CLI
+        uses: kyverno/action-install-cli@v0.2.0
+        with:
+          # Pinned: the classic kyverno-test.yaml schema is only accepted by
+          # Kyverno CLI <= 1.14; newer CLIs reject it.
+          release: 'v1.13.4'
+
+      - name: Kyverno Policy Tests
+        run: kyverno test kubernetes-gitops-security/kyverno-policies --detailed-results
+
+  ansible:
+    name: Ansible Lint & Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install Ansible & Lint
+        run: pip install "ansible-core>=2.16" ansible-lint yamllint
+
+      - name: Ansible Lint
+        run: ansible-lint multi-cloud-infra/ansible-config/playbook.yml
+
+      - name: Ansible Syntax Check
+        run: ansible-playbook multi-cloud-infra/ansible-config/playbook.yml --syntax-check
+
+      - name: YAML Lint (Ansible)
+        run: yamllint -c .yamllint.yml multi-cloud-infra/ansible-config/
+
+  python:
+    name: Python Tests (Cost Tooling)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: pip install -r cloud-cost-optimization/requirements.txt
+
+      - name: Byte-compile all scripts
+        run: |
+          python -m py_compile \
+            cloud-cost-optimization/cost-explorer-api/cost_analysis.py \
+            cloud-cost-optimization/lambda-cost-analysis/lambda_function.py
+
+      - name: Run pytest
+        run: python -m pytest cloud-cost-optimization/ -v --tb=short
+
+  test:
+    name: Integration Tests (LocalStack + kind)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: [lint, security-scan, go, docker, kubernetes, ansible, python]
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Start LocalStack
+        uses: LocalStack/gh-action-localstack@v1
+        with:
+          services: ec2,s3,iam,sts,cloudformation,lambda,logs,dynamodb
+          image: localstack/localstack:3.5
+
+      - name: Wait for LocalStack
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:4566/_localstack/health && break
+            sleep 5
+          done
+          curl -s http://localhost:4566/_localstack/health | jq .
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init (AWS - LocalStack)
+        working-directory: multi-cloud-infra/terraform-aws
+        run: terraform init
+
+      - name: Terraform Plan (AWS - LocalStack)
+        working-directory: multi-cloud-infra/terraform-aws
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Terraform Apply (AWS - LocalStack)
+        working-directory: multi-cloud-infra/terraform-aws
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: terraform apply -auto-approve tfplan
+
+      - name: Verify LocalStack Resources
+        env:
+          AWS_ACCESS_KEY_ID: test
+          AWS_SECRET_ACCESS_KEY: test
+          AWS_DEFAULT_REGION: us-east-1
+        run: |
+          aws --endpoint-url=http://localhost:4566 ec2 describe-vpcs
+          aws --endpoint-url=http://localhost:4566 s3 ls
+
+      - name: Start kind Cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          config: kind-config.yaml
+          cluster_name: devops-portfolio
+
+      - name: Deploy Helm Chart
+        working-directory: kubernetes-gitops-security/helm-charts
+        run: helm install sample-app . --namespace default --create-namespace --wait --timeout=120s
+
+      - name: Verify K8s Deployment
+        run: |
+          kubectl get pods -n default
+          kubectl get svc -n default
+
+  deploy:
+    name: Deploy to Environment
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs: test
+    # Deploy is opt-in: set repository variable ENABLE_DEPLOY=true to enable.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && vars.ENABLE_DEPLOY == 'true'
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # OIDC federation — no long-lived AWS keys stored as secrets.
+      - name: Configure AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TERRAFORM_VERSION }}
+
+      - name: Terraform Init (AWS)
+        working-directory: multi-cloud-infra/terraform-aws
+        run: terraform init
+
+      - name: Terraform Plan (AWS)
+        working-directory: multi-cloud-infra/terraform-aws
+        run: terraform plan -out=tfplan -input=false
+
+      - name: Terraform Apply (AWS)
+        working-directory: multi-cloud-infra/terraform-aws
+        run: terraform apply -auto-approve tfplan
+
+      - name: Notify Success
+        if: success()
+        run: echo "Deployment to production successful"
+
+  notify:
+    name: Notify
+    runs-on: ubuntu-latest
+    needs: [lint, security-scan, go, docker, kubernetes, ansible, python, test, deploy]
+    if: always()
+    steps:
+      - name: Job Status
+        run: |
+          echo "Workflow completed with status: ${{ job.status }}"
+          if [ "${{ job.status }}" != "success" ]; then
+            echo "Some jobs failed or were skipped"
+          fi
