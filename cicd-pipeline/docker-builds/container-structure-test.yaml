@@ -30,6 +30,6 @@ commandTests:
   - name: "Version flag"
     command: "/app/main"
     args: ["-version"]
-    expectedExitCode: 0
+    exitCode: 0
     expectedOutput:
       - "Version:"
