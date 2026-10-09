@@ -1,0 +1,6 @@
+---
+# Demo image: base packages are intentionally unpinned, and RUN steps are kept
+# separate for readability rather than consolidated.
+ignored:
+  - DL3018
+  - DL3059
