@@ -5,7 +5,7 @@
   gather_facts: true
   vars:
     project_name: "devops-portfolio"
-    environment: "dev"
+    app_environment: "dev"
     docker_image: "nginx:alpine"
     container_name: "devops-portfolio-app"
     container_port: "8080"
@@ -92,7 +92,7 @@
           - "{{ ansible_env.HOME }}/{{ project_name }}/data:/usr/share/nginx/html:ro"
         labels:
           project: "{{ project_name }}"
-          environment: "{{ environment }}"
+          environment: "{{ app_environment }}"
           managed_by: "ansible"
 
     - name: Create custom index.html for the container
