@@ -89,6 +89,12 @@ variable "include_load_balancer" {
   default     = true
 }
 
+variable "include_app_instances" {
+  description = "Provision the EC2 app instances. LocalStack OSS cannot reliably emulate docker-backed instances (terraform aws provider: 'error collecting instance settings'), so set false when testing against it."
+  type        = bool
+  default     = true
+}
+
 variable "ami_id" {
   description = "Optional AMI ID override (e.g. a LocalStack canned AMI like ami-000001)"
   type        = string
@@ -200,7 +206,7 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
-  ami_id      = var.ami_id != "" ? var.ami_id : data.aws_ami.amazon_linux_2023[0].id
+  ami_id      = var.include_app_instances ? (var.ami_id != "" ? var.ami_id : data.aws_ami.amazon_linux_2023[0].id) : ""
   tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -380,8 +386,8 @@ resource "aws_security_group" "alb" {
 }
 
 resource "aws_instance" "app" {
-  count                  = 2
-  ami                    = local.ami_id
+  count       = var.include_app_instances ? 2 : 0
+  ami         = local.ami_id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.private[count.index].id
   vpc_security_group_ids = [aws_security_group.app.id]
@@ -509,7 +515,7 @@ resource "aws_lb_target_group" "app" {
 }
 
 resource "aws_lb_target_group_attachment" "app" {
-  count            = var.include_load_balancer ? 2 : 0
+  count            = var.include_load_balancer && var.include_app_instances ? 2 : 0
   target_group_arn = aws_lb_target_group.app[0].arn
   target_id        = aws_instance.app[count.index].id
   port             = 8080
@@ -548,7 +554,7 @@ data "aws_availability_zones" "available" {
 }
 
 data "aws_ami" "amazon_linux_2023" {
-  count       = var.ami_id != "" ? 0 : 1
+  count       = !var.include_app_instances || var.ami_id != "" ? 0 : 1
   most_recent = true
   owners      = ["amazon"]
   filter {

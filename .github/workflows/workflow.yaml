@@ -376,12 +376,9 @@ jobs:
             -p 4566:4566 \
             localstack/localstack:3.5
 
-      # LocalStack treats docker images tagged localstack-ec2/<name>:<ami-id>
-      # as EC2 AMIs (see docs.localstack.cloud/aws/services/ec2).
-      - name: Prepare LocalStack EC2 AMI
-        run: |
-          docker pull amazonlinux:2023
-          docker tag amazonlinux:2023 localstack-ec2/amazonlinux-2023-docker-ami:ami-00a001
+      # Pre-pull examples commented out: docker-backed EC2 instances are not
+      # reliably emulated by LocalStack OSS, so the integration apply runs with
+      # include_app_instances=false (see hashicorp/terraform-provider-aws#26163).
 
       - name: Wait for LocalStack
         run: |
@@ -406,7 +403,7 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
-        run: terraform plan -out=tfplan -input=false -var='include_load_balancer=false' -var='ami_id=ami-00a001'
+        run: terraform plan -out=tfplan -input=false -var='include_load_balancer=false' -var='include_app_instances=false'
 
       - name: Terraform Apply (AWS - LocalStack)
         working-directory: multi-cloud-infra/terraform-aws
