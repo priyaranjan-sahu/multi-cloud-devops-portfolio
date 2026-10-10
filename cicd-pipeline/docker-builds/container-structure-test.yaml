@@ -3,7 +3,7 @@ schemaVersion: "2.0.0"
 metadataTest:
   exposedPorts:
     - "8080"
-  user: "appuser"
+  user: "65532"
   entrypoint: ["/app/main"]
 
 fileExistenceTests:
