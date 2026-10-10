@@ -368,14 +368,12 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Start LocalStack
-        uses: LocalStack/setup-localstack@v0.3.2
-        with:
-          image-tag: '3.5'
-          install-awslocal: 'true'
-          # The README notes use-pro now defaults to true, which pulls the Pro
-          # image and requires a LOCALSTACK_AUTH_TOKEN. Force the OSS image.
-          use-pro: 'false'
-          configuration: 'SERVICES=ec2,elbv2,s3,iam,sts,kms,cloudformation,lambda,logs,dynamodb,apigateway'
+        run: |
+          docker run -d --rm --name localstack \
+            -e SERVICES=ec2,elbv2,s3,iam,sts,kms,cloudformation,lambda,logs,dynamodb,apigateway \
+            -e DEBUG=1 \
+            -p 4566:4566 \
+            localstack/localstack:3.5
 
       - name: Wait for LocalStack
         run: |
