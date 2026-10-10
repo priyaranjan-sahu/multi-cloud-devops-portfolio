@@ -376,6 +376,13 @@ jobs:
             -p 4566:4566 \
             localstack/localstack:3.5
 
+      # LocalStack treats docker images tagged localstack-ec2/<name>:<ami-id>
+      # as EC2 AMIs (see docs.localstack.cloud/aws/services/ec2).
+      - name: Prepare LocalStack EC2 AMI
+        run: |
+          docker pull amazonlinux:2023
+          docker tag amazonlinux:2023 localstack-ec2/amazonlinux-2023-docker-ami:ami-00a001
+
       - name: Wait for LocalStack
         run: |
           for i in $(seq 1 30); do
@@ -399,7 +406,7 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
-        run: terraform plan -out=tfplan -input=false -var='include_load_balancer=false' -var='ami_id=ami-000001'
+        run: terraform plan -out=tfplan -input=false -var='include_load_balancer=false' -var='ami_id=ami-00a001'
 
       - name: Terraform Apply (AWS - LocalStack)
         working-directory: multi-cloud-infra/terraform-aws
