@@ -83,6 +83,18 @@ variable "environment" {
   default     = "dev"
 }
 
+variable "include_load_balancer" {
+  description = "Provision the ALB layer. LocalStack OSS does not implement ELBv2, so set false when testing against it."
+  type        = bool
+  default     = true
+}
+
+variable "ami_id" {
+  description = "Optional AMI ID override (e.g. a LocalStack canned AMI like ami-000001)"
+  type        = string
+  default     = ""
+}
+
 variable "acm_certificate_arn" {
   description = "ACM Certificate ARN for HTTPS listener (optional)"
   type        = string
@@ -188,6 +200,7 @@ data "aws_caller_identity" "current" {}
 
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+  ami_id      = var.ami_id != "" ? var.ami_id : data.aws_ami.amazon_linux_2023[0].id
   tags = {
     Project     = var.project_name
     Environment = var.environment
@@ -295,20 +308,26 @@ resource "aws_security_group" "app" {
   description = "Security group for application servers"
   vpc_id      = aws_vpc.main.id
 
-  ingress {
-    from_port       = 8080
-    to_port         = 8080
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-    description     = "HTTP from ALB"
+  dynamic "ingress" {
+    for_each = var.include_load_balancer ? ["alb"] : []
+    content {
+      from_port       = 8080
+      to_port         = 8080
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb[0].id]
+      description     = "HTTP from ALB"
+    }
   }
 
-  ingress {
-    from_port       = 8443
-    to_port         = 8443
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb.id]
-    description     = "HTTPS from ALB"
+  dynamic "ingress" {
+    for_each = var.include_load_balancer ? ["alb"] : []
+    content {
+      from_port       = 8443
+      to_port         = 8443
+      protocol        = "tcp"
+      security_groups = [aws_security_group.alb[0].id]
+      description     = "HTTPS from ALB"
+    }
   }
 
   ingress {
@@ -331,6 +350,7 @@ resource "aws_security_group" "app" {
 }
 
 resource "aws_security_group" "alb" {
+  count       = var.include_load_balancer ? 1 : 0
   name        = "${local.name_prefix}-alb-sg"
   description = "Security group for Application Load Balancer"
   vpc_id      = aws_vpc.main.id
@@ -361,7 +381,7 @@ resource "aws_security_group" "alb" {
 
 resource "aws_instance" "app" {
   count                  = 2
-  ami                    = data.aws_ami.amazon_linux_2023.id
+  ami                    = local.ami_id
   instance_type          = "t3.micro"
   subnet_id              = aws_subnet.private[count.index].id
   vpc_security_group_ids = [aws_security_group.app.id]
@@ -462,15 +482,17 @@ resource "aws_iam_instance_profile" "app" {
 }
 
 resource "aws_lb" "app" {
+  count              = var.include_load_balancer ? 1 : 0
   name               = "${local.name_prefix}-alb"
   internal           = false
   load_balancer_type = "application"
-  security_groups    = [aws_security_group.alb.id]
+  security_groups    = [aws_security_group.alb[0].id]
   subnets            = aws_subnet.public[*].id
   tags               = local.tags
 }
 
 resource "aws_lb_target_group" "app" {
+  count       = var.include_load_balancer ? 1 : 0
   name        = "${local.name_prefix}-tg"
   port        = 8080
   protocol    = "HTTP"
@@ -487,14 +509,15 @@ resource "aws_lb_target_group" "app" {
 }
 
 resource "aws_lb_target_group_attachment" "app" {
-  count            = 2
-  target_group_arn = aws_lb_target_group.app.arn
+  count            = var.include_load_balancer ? 2 : 0
+  target_group_arn = aws_lb_target_group.app[0].arn
   target_id        = aws_instance.app[count.index].id
   port             = 8080
 }
 
 resource "aws_lb_listener" "http" {
-  load_balancer_arn = aws_lb.app.arn
+  count              = var.include_load_balancer ? 1 : 0
+  load_balancer_arn = aws_lb.app[0].arn
   port              = 80
   protocol          = "HTTP"
   default_action {
@@ -508,15 +531,15 @@ resource "aws_lb_listener" "http" {
 }
 
 resource "aws_lb_listener" "https" {
-  count             = var.acm_certificate_arn != "" ? 1 : 0
-  load_balancer_arn = aws_lb.app.arn
+  count              = var.include_load_balancer && var.acm_certificate_arn != "" ? 1 : 0
+  load_balancer_arn = aws_lb.app[0].arn
   port              = 443
   protocol          = "HTTPS"
   ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
   certificate_arn   = var.acm_certificate_arn
   default_action {
     type             = "forward"
-    target_group_arn = aws_lb_target_group.app.arn
+    target_group_arn = aws_lb_target_group.app[0].arn
   }
 }
 
@@ -525,6 +548,7 @@ data "aws_availability_zones" "available" {
 }
 
 data "aws_ami" "amazon_linux_2023" {
+  count       = var.ami_id != "" ? 0 : 1
   most_recent = true
   owners      = ["amazon"]
   filter {
@@ -557,7 +581,7 @@ output "private_subnet_ids" {
 }
 
 output "alb_dns_name" {
-  value       = aws_lb.app.dns_name
+  value       = var.include_load_balancer ? aws_lb.app[0].dns_name : null
   description = "ALB DNS name"
 }
 

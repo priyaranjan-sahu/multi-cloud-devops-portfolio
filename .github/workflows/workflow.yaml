@@ -370,6 +370,7 @@ jobs:
       - name: Start LocalStack
         run: |
           docker run -d --rm --name localstack \
+            -v /var/run/docker.sock:/var/run/docker.sock \
             -e SERVICES=ec2,elbv2,s3,iam,sts,kms,cloudformation,lambda,logs,dynamodb,apigateway \
             -e DEBUG=1 \
             -p 4566:4566 \
@@ -398,7 +399,7 @@ jobs:
           AWS_ACCESS_KEY_ID: test
           AWS_SECRET_ACCESS_KEY: test
           AWS_DEFAULT_REGION: us-east-1
-        run: terraform plan -out=tfplan -input=false
+        run: terraform plan -out=tfplan -input=false -var='include_load_balancer=false' -var='ami_id=ami-000001'
 
       - name: Terraform Apply (AWS - LocalStack)
         working-directory: multi-cloud-infra/terraform-aws
