@@ -428,9 +428,11 @@ jobs:
           config: kind-config.yaml
           cluster_name: devops-portfolio
 
+      # Bare kind cluster has no Prometheus Operator, so ServiceMonitor CRDs
+      # aren't present; render it disabled for the smoke test.
       - name: Deploy Helm Chart
         working-directory: kubernetes-gitops-security/helm-charts
-        run: helm install sample-app . --namespace default --create-namespace --wait --timeout=120s
+        run: helm install sample-app . --namespace default --create-namespace --wait --timeout=120s --set serviceMonitor.enabled=false
 
       - name: Verify K8s Deployment
         run: |
