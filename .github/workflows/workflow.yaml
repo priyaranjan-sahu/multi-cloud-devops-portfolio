@@ -428,6 +428,15 @@ jobs:
           config: kind-config.yaml
           cluster_name: devops-portfolio
 
+      # The chart deploys devops-portfolio/app:latest (built in the `docker`
+      # job on a separate runner), so build it here and load it into the
+      # kind nodes, otherwise pods hang on ImagePullBackOff.
+      - name: Build app image
+        run: docker build -t devops-portfolio/app:latest ./cicd-pipeline/docker-builds
+
+      - name: Load image into kind
+        run: kind load docker-image devops-portfolio/app:latest --name devops-portfolio
+
       # Bare kind cluster has no Prometheus Operator, so ServiceMonitor CRDs
       # aren't present; render it disabled for the smoke test.
       - name: Deploy Helm Chart
