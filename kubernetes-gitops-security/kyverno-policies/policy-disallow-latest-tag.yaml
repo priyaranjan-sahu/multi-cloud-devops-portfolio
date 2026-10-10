@@ -1,0 +1,27 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: disallow-latest-tag
+  annotations:
+    policies.kyverno.io/title: Disallow Latest Tag
+    policies.kyverno.io/category: Supply Chain
+    policies.kyverno.io/severity: medium
+    policies.kyverno.io/description: >-
+      Rejecting the mutable ':latest' tag ensures workloads run a pinned,
+      reproducible image version.
+spec:
+  validationFailureAction: Enforce
+  background: true
+  rules:
+    - name: check-image-tag
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      validate:
+        message: "Using a mutable image tag such as ':latest' is not allowed."
+        pattern:
+          spec:
+            containers:
+              - image: "!*:latest"

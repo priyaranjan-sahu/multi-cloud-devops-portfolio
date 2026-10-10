@@ -1,0 +1,19 @@
+extends: default
+
+ignore: |
+  kubernetes-gitops-security/helm-charts/templates/
+  localstack-data/
+  .terraform/
+
+rules:
+  line-length:
+    max: 120
+    level: warning
+  truthy:
+    allowed-values: ["true", "false", "yes", "no", "on", "off"]
+  # Helm/Go-templated and Kubernetes manifests do not require a document start
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  comments-indentation:
+    level: warning

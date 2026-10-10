@@ -1,1 +1,528 @@
-# Placeholder for jenkins-pipelines/Jenkinsfile
+#!/usr/bin/env groovy
+/**
+ * Jenkins Pipeline for Multi-Cloud DevOps Portfolio
+ * Compatible with Jenkins, Jenkins X, and act (for local testing)
+ */
+
+pipeline {
+    agent any
+
+    options {
+        timeout(time: 60, unit: 'MINUTES')
+        timestamps()
+        ansiColor('xterm')
+        buildDiscarder(logRotator(numToKeepStr: '20', artifactNumToKeepStr: '10'))
+        disableConcurrentBuilds()
+    }
+
+    environment {
+        // Terraform
+        TERRAFORM_VERSION = '1.9.0'
+        TF_IN_AUTOMATION = 'true'
+
+        // AWS (for LocalStack in local testing)
+        AWS_REGION = 'us-east-1'
+        AWS_ACCESS_KEY_ID = 'test'
+        AWS_SECRET_ACCESS_KEY = 'test'
+        AWS_DEFAULT_REGION = 'us-east-1'
+
+        // Docker
+        DOCKER_BUILDKIT = '1'
+        COMPOSE_DOCKER_CLI_BUILD = '1'
+
+        // Paths
+        TERRAFORM_AWS_DIR = 'multi-cloud-infra/terraform-aws'
+        TERRAFORM_GCP_DIR = 'multi-cloud-infra/terraform-gcp'
+        TERRAFORM_AZURE_DIR = 'multi-cloud-infra/terraform-azure'
+        DOCKER_DIR = 'cicd-pipeline/docker-builds'
+        ANSIBLE_DIR = 'multi-cloud-infra/ansible-config'
+        HELM_DIR = 'kubernetes-gitops-security/helm-charts'
+        K8S_DIR = 'kubernetes-gitops-security'
+    }
+
+    tools {
+        // These would be configured in Jenkins Global Tool Configuration
+        // maven 'Maven 3.9'
+        // gradle 'Gradle 8.5'
+        // nodejs 'NodeJS 20'
+    }
+
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                sh 'git log --oneline -5'
+            }
+        }
+
+        stage('Setup Tools') {
+            parallel {
+                stage('Terraform') {
+                    steps {
+                        sh '''
+                            # Install Terraform if not present
+                            if ! command -v terraform &> /dev/null; then
+                                echo "Installing Terraform ${TERRAFORM_VERSION}..."
+                                wget -q https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                                unzip -o terraform_${TERRAFORM_VERSION}_linux_amd64.zip -d /usr/local/bin/
+                                rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+                            fi
+                            terraform version
+                        '''
+                    }
+                }
+                stage('Docker') {
+                    steps {
+                        sh 'docker version'
+                    }
+                }
+                stage('Ansible') {
+                    steps {
+                        sh '''
+                            if ! command -v ansible &> /dev/null; then
+                                pip install ansible ansible-lint yamllint --quiet
+                            fi
+                            ansible --version
+                            ansible-lint --version
+                        '''
+                    }
+                }
+                stage('Helm & K8s') {
+                    steps {
+                        sh '''
+                            if ! command -v helm &> /dev/null; then
+                                curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+                            fi
+                            helm version
+                            kubectl version --client
+                        '''
+                    }
+                }
+                stage('Security Tools') {
+                    steps {
+                        sh '''
+                            # Install checkov
+                            if ! command -v checkov &> /dev/null; then
+                                pip install checkov --quiet
+                            fi
+                            # Install tfsec
+                            if ! command -v tfsec &> /dev/null; then
+                                curl -s https://raw.githubusercontent.com/aquasecurity/tfsec/master/scripts/install_linux.sh | bash
+                            fi
+                            # Install hadolint
+                            if ! command -v hadolint &> /dev/null; then
+                                wget -q -O /usr/local/bin/hadolint https://github.com/hadolint/hadolint/releases/latest/download/hadolint-Linux-x86_64
+                                chmod +x /usr/local/bin/hadolint
+                            fi
+                            checkov --version
+                            tfsec --version
+                            hadolint --version
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Code Quality') {
+            parallel {
+                stage('Terraform Format') {
+                    steps {
+                        dir(env.TERRAFORM_AWS_DIR) {
+                            sh 'terraform fmt -check -diff'
+                        }
+                        dir(env.TERRAFORM_GCP_DIR) {
+                            sh 'terraform fmt -check -diff'
+                        }
+                        dir(env.TERRAFORM_AZURE_DIR) {
+                            sh 'terraform fmt -check -diff'
+                        }
+                        dir('cloud-security') {
+                            sh 'terraform fmt -check -diff'
+                        }
+                    }
+                }
+                stage('Terraform Validate') {
+                    steps {
+                        dir(env.TERRAFORM_AWS_DIR) {
+                            sh 'terraform init -backend=false && terraform validate'
+                        }
+                        dir(env.TERRAFORM_GCP_DIR) {
+                            sh 'terraform init -backend=false && terraform validate'
+                        }
+                        dir(env.TERRAFORM_AZURE_DIR) {
+                            sh 'terraform init -backend=false && terraform validate'
+                        }
+                    }
+                }
+                stage('YAML Lint') {
+                    steps {
+                        sh 'yamllint . -c .yamllint.yml || true'
+                    }
+                }
+                stage('Markdown Lint') {
+                    steps {
+                        sh 'markdownlint . --config .markdownlint.json || true'
+                    }
+                }
+                stage('Shellcheck') {
+                    steps {
+                        sh 'shellcheck $(find . -name "*.sh" -not -path "./.terraform/*" -not -path "./localstack-data/*") || true'
+                    }
+                }
+                stage('Dockerfile Lint') {
+                    steps {
+                        dir(env.DOCKER_DIR) {
+                            sh 'hadolint Dockerfile'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Security Scans') {
+            parallel {
+                stage('Checkov (Terraform)') {
+                    steps {
+                        sh '''
+                            checkov -d multi-cloud-infra/ -d cloud-security/ \
+                                --framework terraform \
+                                --quiet \
+                                --soft-fail \
+                                --output cli
+                        '''
+                    }
+                }
+                stage('tfsec') {
+                    steps {
+                        sh '''
+                            tfsec multi-cloud-infra/ cloud-security/ \
+                                --soft-fail \
+                                --no-colour
+                        '''
+                    }
+                }
+                stage('Trivy (FS)') {
+                    steps {
+                        sh '''
+                            trivy fs --security-checks vuln,secret,config \
+                                --severity HIGH,CRITICAL \
+                                --format table \
+                                . || true
+                        '''
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'develop'
+                    changeRequest()
+                }
+            }
+            parallel {
+                stage('AWS Plan') {
+                    steps {
+                        dir(env.TERRAFORM_AWS_DIR) {
+                            sh '''
+                                terraform init
+                                terraform plan -out=tfplan -input=false
+                            '''
+                        }
+                    }
+                }
+                stage('GCP Plan') {
+                    steps {
+                        dir(env.TERRAFORM_GCP_DIR) {
+                            sh '''
+                                terraform init -backend=false
+                                terraform plan -out=tfplan -input=false
+                            '''
+                        }
+                    }
+                }
+                stage('Azure Plan') {
+                    steps {
+                        dir(env.TERRAFORM_AZURE_DIR) {
+                            sh '''
+                                terraform init -backend=false
+                                terraform plan -out=tfplan -input=false
+                            '''
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                dir(env.DOCKER_DIR) {
+                    sh '''
+                        docker build \
+                            --build-arg VERSION=${BUILD_NUMBER:-local} \
+                            --build-arg COMMIT=${GIT_COMMIT:-$(git rev-parse --short HEAD)} \
+                            --build-arg BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ) \
+                            -t devops-portfolio/app:${BUILD_NUMBER:-latest} \
+                            -t devops-portfolio/app:${GIT_COMMIT:-$(git rev-parse --short HEAD)} \
+                            .
+                    '''
+                }
+            }
+        }
+
+        stage('Docker Test') {
+            steps {
+                dir(env.DOCKER_DIR) {
+                    sh '''
+                        # Run container structure tests
+                        docker run --rm \
+                            -v $(pwd):/test \
+                            gcr.io/gcp-runtimes/container-structure-test:latest \
+                            test --image devops-portfolio/app:${BUILD_NUMBER:-latest} \
+                            --config container-structure-test.yaml
+
+                        # Test health endpoint
+                        CONTAINER_ID=$(docker run -d -p 8080:8080 devops-portfolio/app:${BUILD_NUMBER:-latest})
+                        sleep 5
+                        curl -f http://localhost:8080/health
+                        docker stop $CONTAINER_ID
+                        docker rm $CONTAINER_ID
+                    '''
+                }
+            }
+        }
+
+        stage('Ansible Test') {
+            steps {
+                dir(env.ANSIBLE_DIR) {
+                    sh '''
+                        ansible-lint playbook.yml
+                        ansible-playbook playbook.yml --syntax-check
+                        # Run in check mode (dry-run)
+                        ansible-playbook playbook.yml --check --diff -i inventory.yml || true
+                    '''
+                }
+            }
+        }
+
+        stage('Helm Test') {
+            steps {
+                dir(env.HELM_DIR) {
+                    sh '''
+                        helm lint .
+                        helm template test-release . --namespace default
+                        # Test with kubeval if available
+                        helm template test-release . --namespace default | kubeval --strict || true
+                    '''
+                }
+            }
+        }
+
+        stage('OPA Policy Test') {
+            steps {
+                dir(env.K8S_DIR) {
+                    sh '''
+                        if [ -f security-policies/policy.rego ]; then
+                            opa test security-policies/ -v
+                        fi
+                    '''
+                }
+            }
+        }
+
+        stage('Integration Test (LocalStack)') {
+            when {
+                anyOf {
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                sh '''
+                    # Start LocalStack
+                    docker compose -f docker-compose.localstack.yml up -d
+                    sleep 15
+                    curl -s http://localhost:4566/_localstack/health | jq .
+
+                    # Deploy to LocalStack
+                    cd multi-cloud-infra/terraform-aws
+                    terraform init
+                    terraform apply -auto-approve tfplan || terraform apply -auto-approve
+
+                    # Verify resources
+                    aws --endpoint-url=http://localhost:4566 ec2 describe-vpcs
+                    aws --endpoint-url=http://localhost:4566 s3 ls
+
+                    # Cleanup
+                    terraform destroy -auto-approve
+                    cd ../..
+                    docker compose -f docker-compose.localstack.yml down -v
+                '''
+            }
+        }
+
+        stage('Integration Test (Kind)') {
+            when {
+                anyOf {
+                    branch 'main'
+                    changeRequest()
+                }
+            }
+            steps {
+                sh '''
+                    # Create kind cluster
+                    kind create cluster --config kind-config.yaml --name devops-portfolio
+                    kubectl wait --for=condition=Ready nodes --all --timeout=120s
+
+                    # Install ingress-nginx
+                    kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+                    kubectl wait --namespace ingress-nginx --for=condition=ready pod --selector=app.kubernetes.io/component=controller --timeout=120s
+
+                    # Deploy Helm chart
+                    cd kubernetes-gitops-security/helm-charts
+                    helm install sample-app . --namespace default --create-namespace --wait --timeout=120s
+
+                    # Verify
+                    kubectl get pods -n default
+                    kubectl get svc -n default
+                    kubectl port-forward svc/sample-app 8081:80 -n default &
+                    sleep 5
+                    curl -f http://localhost:8081/health || true
+
+                    # Cleanup
+                    helm uninstall sample-app -n default
+                    kind delete cluster --name devops-portfolio
+                '''
+            }
+        }
+
+        stage('Cost Analysis Test') {
+            steps {
+                dir('cloud-cost-optimization/cost-explorer-api') {
+                    sh '''
+                        python -m py_compile cost_analysis.py
+                        python cost_analysis.py --mock --start-date 2024-01-01 --end-date 2024-01-31 --output json
+                    '''
+                }
+                dir('cloud-cost-optimization/lambda-cost-analysis') {
+                    sh '''
+                        python -m py_compile lambda_function.py
+                        MOCK_MODE=true python lambda_function.py
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            // Cleanup
+            sh '''
+                # Clean up any leftover containers
+                docker ps -a -q --filter "ancestor=devops-portfolio/app" | xargs -r docker rm -f
+                # Clean up Terraform plans
+                find multi-cloud-infra -name "tfplan" -delete
+                find multi-cloud-infra -name ".terraform" -type d -exec rm -rf {} + 2>/dev/null || true
+            '''
+        }
+
+        success {
+            echo '✅ Pipeline completed successfully!'
+            // Archive artifacts
+            archiveArtifacts artifacts: '**/tfplan', fingerprint: true, onlyIfSuccessful: true
+        }
+
+        failure {
+            echo '❌ Pipeline failed!'
+            // Send notification (configure in Jenkins)
+            // emailext (
+            //     subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
+            //     body: "Build failed. Check console output at ${env.BUILD_URL}",
+            //     to: 'team@example.com'
+            // )
+        }
+
+        unstable {
+            echo '⚠️ Pipeline completed with warnings'
+        }
+
+        changed {
+            echo '📊 Pipeline status changed'
+        }
+    }
+}
+
+// ===========================================
+// Shared Library Functions (for reuse)
+// ===========================================
+
+/**
+ * Terraform wrapper with common options
+ */
+def terraform(String dir, String command, Map args = [:]) {
+    dir(dir) {
+        def cmd = "terraform ${command}"
+        if (args) {
+            args.each { k, v -> cmd += " -${k}=${v}" }
+        }
+        sh cmd
+    }
+}
+
+/**
+ * Run ansible-playbook with common options
+ */
+def ansiblePlaybook(String playbook, String inventory = 'inventory.yml', Map extraArgs = [:]) {
+    dir(env.ANSIBLE_DIR) {
+        def cmd = "ansible-playbook -i ${inventory} ${playbook}"
+        extraArgs.each { k, v -> cmd += " --${k}=${v}" }
+        sh cmd
+    }
+}
+
+/**
+ * Build and push Docker image
+ */
+def buildAndPush(String imageName, String tag, String dockerfileDir = env.DOCKER_DIR) {
+    dir(dockerfileDir) {
+        sh "docker build -t ${imageName}:${tag} ."
+        sh "docker push ${imageName}:${tag}"
+    }
+}
+
+/**
+ * Helm deploy
+ */
+def helmDeploy(String release, String chartDir, String namespace = 'default', Map values = [:]) {
+    dir(chartDir) {
+        def valueArgs = values.collect { "-f ${it}" }.join(' ')
+        sh "helm upgrade --install ${release} . --namespace ${namespace} --create-namespace ${valueArgs} --wait --timeout=300s"
+    }
+}
+
+/**
+ * Kind cluster management
+ */
+def withKindCluster(String name = 'devops-portfolio', Closure body) {
+    try {
+        sh "kind create cluster --config kind-config.yaml --name ${name}"
+        body()
+    } finally {
+        sh "kind delete cluster --name ${name}"
+    }
+}
+
+/**
+ * LocalStack management
+ */
+def withLocalStack(Closure body) {
+    try {
+        sh 'docker compose -f docker-compose.localstack.yml up -d'
+        sh 'sleep 10 && curl -s http://localhost:4566/_localstack/health | jq .'
+        body()
+    } finally {
+        sh 'docker compose -f docker-compose.localstack.yml down -v'
+    }
+}

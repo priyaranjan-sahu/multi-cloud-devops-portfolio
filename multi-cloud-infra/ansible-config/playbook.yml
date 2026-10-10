@@ -1,1 +1,199 @@
-# Placeholder for ansible-config/playbook.yml
+---
+- name: Configure Local Development Environment
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars:
+    project_name: "devops-portfolio"
+    app_environment: "dev"
+    docker_image: "nginx:alpine"
+    container_name: "devops-portfolio-app"
+    container_port: "8080"
+    ssh_key_path: "~/.ssh/id_rsa"
+    user: "{{ ansible_user_id }}"
+
+  tasks:
+    - name: Ensure required packages are installed (Ubuntu/Debian)
+      become: true
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - docker-compose
+          - python3-docker
+          - curl
+          - jq
+          - unzip
+        state: present
+        update_cache: true
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Ensure required packages are installed (RHEL/Fedora)
+      become: true
+      ansible.builtin.dnf:
+        name:
+          - docker
+          - docker-compose
+          - python3-docker
+          - curl
+          - jq
+          - unzip
+        state: present
+      when: ansible_facts['os_family'] == "RedHat"
+
+    - name: Start and enable Docker service
+      become: true
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Add user to docker group
+      become: true
+      ansible.builtin.user:
+        name: "{{ user }}"
+        groups: docker
+        append: true
+
+    - name: Create project directory structure
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ ansible_env.HOME }}/{{ project_name }}"
+        - "{{ ansible_env.HOME }}/{{ project_name }}/data"
+        - "{{ ansible_env.HOME }}/{{ project_name }}/config"
+        - "{{ ansible_env.HOME }}/{{ project_name }}/logs"
+
+    - name: Generate SSH key pair if not exists
+      ansible.builtin.command: >
+        ssh-keygen -t rsa -b 4096 -f {{ ssh_key_path }} -N ""
+      args:
+        creates: "{{ ssh_key_path }}"
+
+    - name: Display public key
+      ansible.builtin.shell: cat {{ ssh_key_path }}.pub
+      register: public_key
+      changed_when: false
+
+    - name: Show public key for GitHub/GitLab
+      ansible.builtin.debug:
+        msg: "Add this public key to your Git provider: {{ public_key.stdout }}"
+
+    - name: Deploy sample application container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ container_port }}:80"
+        volumes:
+          - "{{ ansible_env.HOME }}/{{ project_name }}/data:/usr/share/nginx/html:ro"
+        labels:
+          project: "{{ project_name }}"
+          environment: "{{ app_environment }}"
+          managed_by: "ansible"
+
+    - name: Create custom index.html for the container
+      ansible.builtin.copy:
+        dest: "{{ ansible_env.HOME }}/{{ project_name }}/data/index.html"
+        content: |
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>DevOps Portfolio - Ansible Deployed</title>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: linear-gradient(135deg, #ee3f2d 0%, #f15a29 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; color: white; }
+                  .container { text-align: center; padding: 2rem; max-width: 800px; }
+                  h1 { font-size: 3rem; margin-bottom: 1rem; }
+                  .subtitle { font-size: 1.5rem; margin-bottom: 2rem; opacity: 0.9; }
+                  .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 2rem; }
+                  .info-card { background: rgba(255,255,255,0.1); border-radius: 12px; padding: 1.5rem; backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }
+                  .info-card h3 { font-size: 1.2rem; margin-bottom: 0.5rem; color: #ffcccc; }
+                  .badge { display: inline-block; background: rgba(255,255,255,0.2); padding: 0.3rem 0.8rem; border-radius: 20px; font-size: 0.85rem; margin: 0.2rem; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>🚀 Multi-Cloud DevOps Portfolio</h1>
+                  <p class="subtitle">Application deployed with Ansible</p>
+                  <div class="info-grid">
+                      <div class="info-card"><h3>Container</h3><p>{{ container_name }}</p></div>
+                      <div class="info-card"><h3>Image</h3><p>{{ docker_image }}</p></div>
+                      <div class="info-card"><h3>Port</h3><p>{{ container_port }}:80</p></div>
+                      <div class="info-card"><h3>Managed By</h3><p>Ansible</p></div>
+                  </div>
+                  <div style="margin-top: 2rem;">
+                      <span class="badge">Ansible</span>
+                      <span class="badge">Docker</span>
+                      <span class="badge">DevOps</span>
+                      <span class="badge">Portfolio</span>
+                  </div>
+              </div>
+          </body>
+          </html>
+        mode: "0644"
+
+    - name: Verify container is running
+      ansible.builtin.uri:
+        url: "http://localhost:{{ container_port }}"
+        status_code: 200
+      register: container_check
+      until: container_check.status == 200
+      retries: 10
+      delay: 3
+
+    - name: Display access information
+      ansible.builtin.debug:
+        msg:
+          - "Application deployed successfully!"
+          - "Access at: http://localhost:{{ container_port }}"
+          - "Project directory: {{ ansible_env.HOME }}/{{ project_name }}"
+          - "SSH public key: {{ public_key.stdout }}"
+
+- name: Configure Remote Server (Optional - for cloud VMs)
+  hosts: cloud_servers
+  become: true
+  vars:
+    project_name: "devops-portfolio"
+    docker_image: "nginx:alpine"
+    container_name: "devops-portfolio-app"
+    container_port: "80"
+
+  tasks:
+    - name: Install Docker
+      ansible.builtin.apt:
+        name:
+          - docker.io
+          - python3-docker
+        state: present
+        update_cache: true
+      when: ansible_facts['os_family'] == "Debian"
+
+    - name: Start Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Deploy application container
+      community.docker.docker_container:
+        name: "{{ container_name }}"
+        image: "{{ docker_image }}"
+        state: started
+        restart_policy: unless-stopped
+        ports:
+          - "{{ container_port }}:80"
+        labels:
+          project: "{{ project_name }}"
+          environment: "production"
+
+    - name: Configure firewall for HTTP
+      community.general.ufw:
+        rule: allow
+        port: "{{ container_port }}"
+        proto: tcp

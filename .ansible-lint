@@ -1,0 +1,10 @@
+---
+# The sample playbook intentionally embeds a small HTML/CSS document inside a
+# block scalar and reads a file with `shell`. Those heuristics do not apply
+# here, so keep them visible as warnings instead of failing the pipeline.
+warn_list:
+  - yaml[line-length]
+  - command-instead-of-shell
+  - key-order[task]
+  - no-changed-when
+  - risky-file-permissions

@@ -1,0 +1,31 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }}
+  $ helm get manifest {{ .Release.Name }}
+
+Access the application:
+
+{{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  {{- range .paths }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}{{ .path }}
+  {{- end }}
+  {{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "devops-portfolio.fullname" . }} 8080:80
+  Then visit http://localhost:8080
+{{- end }}
+
+Check application health:
+  kubectl exec -it deployment/{{ include "devops-portfolio.fullname" . }} -- /app/main -health-check
+
+View logs:
+  kubectl logs -l app.kubernetes.io/name={{ include "devops-portfolio.name" . }} -f
+
+Monitor with Prometheus:
+  The ServiceMonitor is {{ if .Values.serviceMonitor.enabled }}enabled{{ else }}disabled{{ end }}.
+  Metrics available at /metrics endpoint.

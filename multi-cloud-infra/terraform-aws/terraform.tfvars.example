@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and adjust for your environment.
+# terraform.tfvars is gitignored - never commit real secrets.
+
+aws_region           = "us-east-1"
+project_name         = "devops-portfolio"
+environment          = "dev"
+localstack_endpoint  = "http://localhost:4566"
+
+# Optional: enable the HTTPS listener on the ALB by supplying a real ACM cert.
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/xxxx"

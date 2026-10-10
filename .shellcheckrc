@@ -1,0 +1,3 @@
+# ${instance_name} is injected by Terraform templatefile() at apply time,
+# so shellcheck cannot see its assignment in the raw .sh template.
+disable=SC2154

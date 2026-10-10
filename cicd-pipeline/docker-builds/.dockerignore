@@ -1,0 +1,31 @@
+# --- VCS / editor ---
+**/.git
+**/.gitignore
+**/.github/
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# --- Secrets ---
+**/.env
+**/*.pem
+**/*.key
+**/*.tfvars
+
+# --- Local build artifacts (Go) ---
+main
+main.exe
+*.exe
+*.test
+coverage.out
+coverage.html
+
+# --- Test sources not copied to the image ---
+main_test.go
+
+# --- CI / scan reports ---
+*.sarif
+*.db
+trivy-*
+sbom*.json
