@@ -416,7 +416,7 @@ jobs:
           aws --endpoint-url=http://localhost:4566 s3 ls
 
       - name: Start kind Cluster
-        uses: helm/kind-action@v1.10.0
+        uses: helm/kind-action@v1.15.1
         with:
           config: kind-config.yaml
           cluster_name: devops-portfolio
