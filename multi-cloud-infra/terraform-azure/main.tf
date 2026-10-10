@@ -3,7 +3,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.100"
+      version = "~> 5.8"
     }
     random = {
       source  = "hashicorp/random"
@@ -18,7 +18,7 @@ terraform {
 
 provider "azurerm" {
   features {}
-  skip_provider_registration = true
+  resource_provider_registrations = "none"
 }
 
 variable "subscription_id" {
@@ -103,7 +103,10 @@ resource "azurerm_subnet" "public" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.1.0/24"]
-  service_endpoints    = ["Microsoft.Storage"]
+
+  service_endpoint {
+    service = "Microsoft.Storage"
+  }
 }
 
 resource "azurerm_subnet" "private" {
@@ -111,7 +114,10 @@ resource "azurerm_subnet" "private" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.10.0/24"]
-  service_endpoints    = ["Microsoft.Storage"]
+
+  service_endpoint {
+    service = "Microsoft.Storage"
+  }
 }
 
 resource "azurerm_network_security_group" "app" {
@@ -330,7 +336,7 @@ resource "azurerm_storage_account" "app" {
 
 resource "azurerm_storage_container" "app" {
   name                  = "${local.name_prefix}-container"
-  storage_account_name  = azurerm_storage_account.app.name
+  storage_account_id    = azurerm_storage_account.app.id
   container_access_type = "private"
 }
 
@@ -342,6 +348,7 @@ resource "azurerm_key_vault" "app" {
   sku_name                    = "standard"
   purge_protection_enabled    = true
   soft_delete_retention_days  = 90
+  rbac_authorization_enabled  = false
   tags                        = local.tags
 }
 
