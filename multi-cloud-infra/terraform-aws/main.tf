@@ -34,9 +34,11 @@ provider "aws" {
 
   endpoints {
     ec2        = var.localstack_endpoint
+    elbv2      = var.localstack_endpoint
     s3         = var.localstack_endpoint
     iam        = var.localstack_endpoint
     sts        = var.localstack_endpoint
+    kms        = var.localstack_endpoint
     cloudformation = var.localstack_endpoint
     lambda     = var.localstack_endpoint
     logs       = var.localstack_endpoint
